@@ -333,6 +333,24 @@ def handle_swapcfg(swapcfg):
 
     return None
 
+def run_quick_command(cmd):
+    import subprocess  # nosec
+    import six
+    import shlex
+    import os
+    #env = os.environ.copy()
+    #env['PYTHONIOENCODING'] = 'UTF-8'
+    if isinstance(cmd, (six.text_type, six.binary_type)):
+        cmd = shlex.split(cmd)
+    get_cmd_proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    stdout, stderr = get_cmd_proc.communicate()
+    if get_cmd_proc.returncode != 0:
+        stderr = list(stderr.strip().decode('utf-8').split("\n"))
+        stderr = ' '.join(map(str, stderr))
+        msg = ("Pacemaker service may be in-active or node is not "
+               "part of the cluster yet. \n ERROR: %s" % stderr)
+        raise Exception(msg)
+    return stdout.decode('utf-8').replace("\n", "")
 
 def handle(name: str, cfg: Config, cloud: Cloud, args: list) -> None:
     # fs_spec, fs_file, fs_vfstype, fs_mntops, fs-freq, fs_passno
@@ -491,6 +509,15 @@ def handle(name: str, cfg: Config, cloud: Cloud, args: list) -> None:
         entry[3] = "%s,%s" % (entry[3], MNT_COMMENT)
         if entry[2] == "swap":
             needswap = True
+            # Change device name to uuid
+            log.debug("ICIC: swap line: %s" % line)
+            try:
+                uuid = run_quick_command("/usr/sbin/blkid %s -s UUID -o value" % str(line[0]))
+                line[0] = "UUID=" + uuid
+                log.debug("ICIC: swap device: %s" % line[0])
+            except Exception as e:
+                log.debug("ICIC: exception %s" % e)
+
         if entry[1].startswith("/"):
             dirs.append(entry[1])
         cc_lines.append("\t".join(entry))
